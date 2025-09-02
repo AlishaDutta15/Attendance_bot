@@ -9,4 +9,4 @@ services:
       - key: BOT_TOKEN
         sync: false
       - key: CSV_FILE
-        value: work_log.csv
+        value: work_log.csv
