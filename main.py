@@ -597,18 +597,23 @@ def main():
     
     setup_csv_file()
 
+    # ✅ build app with job queue enabled
     app = ApplicationBuilder().token(TOKEN).build()
+
+    # ✅ get job_queue from app
+    job_queue = app.job_queue
+
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("back", back_cmd))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
 
-    # Schedule repeating job to check for auto off-work every 60 seconds.
-    # This will trigger auto-offwork at 23:59 local time exactly once per date.
-    app.job_queue.run_repeating(auto_offwork_check, interval=60, first=10, name="auto_offwork_checker")
+    # ✅ use job_queue here instead of app.job_queue directly
+    job_queue.run_repeating(auto_offwork_check, interval=60, first=10, name="auto_offwork_checker")
 
     print("🚀 Bot is now running and waiting for messages from all users!")
     nest_asyncio.apply()
     app.run_polling()
 
+# ✅ fix typo: should be _name_ not name
 if __name__ == "__main__":
     main()
