@@ -1,28 +1,25 @@
 import logging
 import os
 import threading
+import nest_asyncio
 import pytz
 import csv
 
 from dotenv import load_dotenv
 from datetime import datetime, time, timedelta
-from fastapi import FastAPI, Request
 from telegram import Update, ReplyKeyboardMarkup
 from telegram.constants import ParseMode
 from telegram.ext import (
-    Application,
+    ApplicationBuilder,
     CommandHandler,
     MessageHandler,
     ContextTypes,
     filters,
 )
-
-# ---------- Env / Config ----------
 load_dotenv()
-TOKEN = os.getenv("BOT_TOKEN")
-if not TOKEN:
-    raise RuntimeError("BOT_TOKEN env var not set. Put it in Render > Environment.")
 
+# --- Configuration ---
+TOKEN = os.getenv("BOT_TOKEN")
 START_WORK_DEADLINE = time(11, 0)
 
 MAX_TOILET_BREAKS = 6
@@ -37,21 +34,31 @@ REST_BREAK_START = time(16, 15)
 REST_BREAK_END = time(17, 45)
 REST_WARNING_BEFORE_END = 10 * 60  # seconds (10 minutes)
 
+# When the clock reaches WORK_END_TIME (23:59), bot should auto-close work
 WORK_END_TIME = time(23, 59)
 
+# --- Timezone ---
 TH_TZ = pytz.timezone("Asia/Bangkok")
 
-# ---------- CSV ----------
-CSV_FILE = os.getenv("CSV_FILE", "work_log.csv")
+# --- CSV Logging Config ---
+CSV_FILE = "work_log.csv"
 CSV_HEADER = ["Timestamp", "UserID", "Username", "Action"]
 log_lock = threading.Lock()
 
+# --- Globals for Multi-User State Management ---
+user_states = {}          # key: user_id -> value: state dict
+user_states_lock = threading.Lock()
+
+# Used to prevent the auto-offwork job from running multiple times in the same minute/day
+last_auto_off_date = None
+
+# --- Logger ---
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# --- CSV Functions ---
 def setup_csv_file():
     """Creates the CSV file and writes the header if it doesn't exist."""
-    # Ensure directory exists if user provided a path like logs/work_log.csv
-    dir_name = os.path.dirname(CSV_FILE)
-    if dir_name:
-        os.makedirs(dir_name, exist_ok=True)
     with log_lock:
         if not os.path.exists(CSV_FILE):
             try:
@@ -72,16 +79,7 @@ def log_to_csv(user_id, username, action):
         except IOError as e:
             logger.error(f"Error writing to CSV file: {e}")
 
-# ---------- State ----------
-user_states = {}          # key: user_id -> value: state dict
-user_states_lock = threading.Lock()
-last_auto_off_date = None
-
-# ---------- Logger ----------
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(_name_)
-
-# ---------- Helpers ----------
+# --- Helpers ---
 def get_reply_keyboard():
     return ReplyKeyboardMarkup(
         [["Start Work", "Off Work"],
@@ -106,12 +104,14 @@ def format_message(username, user_id, action, toilet_count=None, warning=None):
     return msg
 
 def format_timedelta(td: timedelta) -> str:
+    # Always represent as HH:MM:SS
     total_seconds = int(td.total_seconds())
     hours, remainder = divmod(total_seconds, 3600)
     minutes, seconds = divmod(remainder, 60)
     return f"{hours:02}:{minutes:02}:{seconds:02}"
 
 def generate_final_report(user_id, username, state, now_dt):
+    """Helper function to build and return the final report message (HTML)."""
     total_toilet_count = state.get("toilet_count", 0)
     total_toilet_time = state.get("toilet_time", timedelta())
     total_rest_time = state.get("rest_time", timedelta())
@@ -144,6 +144,9 @@ def generate_final_report(user_id, username, state, now_dt):
     return msg
 
 def ensure_state(user_id: int):
+    """
+    Ensure a state dict exists for this user_id.
+    """
     with user_states_lock:
         if user_id not in user_states:
             user_states[user_id] = {
@@ -161,10 +164,11 @@ def ensure_state(user_id: int):
                 "rest_start_time": None,
                 "eat_start_time": None,
                 "start_work_time": None,
-                "username": None,
+                "username": None,  # will be kept up-to-date on each message
             }
 
 def cancel_user_jobs(context: ContextTypes.DEFAULT_TYPE, user_id: int):
+    """Remove any scheduled jobs for this specific user."""
     prefixes = [
         "toilet_warning", "toilet_timeout",
         "eat_warning", "eat_timeout",
@@ -181,15 +185,22 @@ async def send_scheduled_alert(context: ContextTypes.DEFAULT_TYPE):
     job = context.job
     await context.bot.send_message(job.chat_id, job.data["message"])
 
-# ---------- Auto-Offwork ----------
+# --- Auto-Offwork checker (runs every minute) ---
 async def auto_offwork_check(context: ContextTypes.DEFAULT_TYPE):
+    """
+    Run every minute. At 23:59 (Asia/Bangkok), auto-generate final reports for
+    all users who are still marked as working (work_started==True).
+    To avoid duplicate runs, we use last_auto_off_date global.
+    """
     global last_auto_off_date
     now_dt = datetime.now(TH_TZ)
     if now_dt.hour == WORK_END_TIME.hour and now_dt.minute == WORK_END_TIME.minute:
+        # Only run once per date
         if last_auto_off_date == now_dt.date():
             return
         last_auto_off_date = now_dt.date()
 
+        # Collect users to auto-close
         to_close = []
         with user_states_lock:
             for uid, st in user_states.items():
@@ -203,6 +214,7 @@ async def auto_offwork_check(context: ContextTypes.DEFAULT_TYPE):
                     continue
                 username = state.get("username") or "Unknown"
 
+            # send report
             msg = generate_final_report(uid, username, state, now_dt)
             try:
                 await context.bot.send_message(uid, msg, parse_mode=ParseMode.HTML, reply_markup=get_reply_keyboard())
@@ -210,17 +222,19 @@ async def auto_offwork_check(context: ContextTypes.DEFAULT_TYPE):
                 logger.error(f"Failed sending auto-offwork report to {uid}: {e}")
 
             log_to_csv(uid, username, "Work completed (auto at 23:59). Final report generated.")
+            # Clean up user state
             with user_states_lock:
                 if uid in user_states:
                     del user_states[uid]
 
-# ---------- Handlers ----------
+# --- Commands ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     user_id = user.id
     username = user.username or user.first_name
 
-    ensure_state(user_id)
+    ensure_state(user_id) # Set up their personal state if they are new.
+    # keep username in state so scheduled job can use it later
     with user_states_lock:
         user_states[user_id]['username'] = username
 
@@ -228,19 +242,26 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message_text = format_message(username, user_id, action)
 
     await update.message.reply_text(message_text, reply_markup=get_reply_keyboard())
-    log_to_csv(user_id, username, "Started bot")
+    log_to_csv(user_id, username, "Started bot") # Log this action for this user.
 
 async def back_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # helper command to simulate pressing "Back to Seat" button
     update.message.text = "Back to Seat"
     await handle_text(update, context)
 
+# --- Message Handler ---
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # MULTI-USER SUPPORT: Every message is handled here. First, we identify WHO sent the message.
     user = update.effective_user
     user_id = user.id
     username = user.username or user.first_name
+
+    # Ensure this specific user has a state profile.
     ensure_state(user_id)
+
     now_dt = datetime.now(TH_TZ)
 
+    # MULTI-USER SUPPORT: Retrieve the state for THIS user only and update username.
     with user_states_lock:
         state = user_states[user_id]
         state['username'] = username
@@ -254,12 +275,14 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             warning=warning
         )
         await update.message.reply_text(message_text, reply_markup=get_reply_keyboard())
-        log_to_csv(user_id, username, action)
+        log_to_csv(user_id, username, action) # Log the action for this specific user.
 
+    # If the user is currently in break and tries to start another break/activity
     if state["in_break"] and text not in ("back to seat", "/back"):
         await send_response("⚠ Please return to seat before starting another activity.")
         return
 
+    # If user hasn't started work yet and tries break/offwork/back, disallow
     if text in {"toilet", "eat", "rest", "off work", "back to seat"} and not state["work_started"]:
         await update.message.reply_text(
             "⚠ You need to start work first before using this option.",
@@ -267,7 +290,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    # START WORK
+    # --- START WORK ---
     if text == "start work":
         with user_states_lock:
             if state["work_started"]:
@@ -305,10 +328,11 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         log_to_csv(user_id, username, "Start Work")
         return
 
-    # OFF WORK
+    # --- OFF WORK ---
     if text == "off work":
         now_dt = datetime.now(TH_TZ)
         current_time = now_dt.time()
+        # If current time is before WORK_END_TIME -> ask confirmation
         if current_time < WORK_END_TIME:
             with user_states_lock:
                 state["awaiting_offwork_confirmation"] = True
@@ -319,6 +343,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
         else:
+            # At or after 23:59 -> auto-generate final report (no confirmation)
             msg = generate_final_report(user_id, username, state, now_dt)
             await update.message.reply_text(msg, parse_mode=ParseMode.HTML, reply_markup=get_reply_keyboard())
             log_to_csv(user_id, username, "Work completed. Final report generated (auto at end time).")
@@ -327,7 +352,9 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     del user_states[user_id]
             return
 
+    # --- Handle Yes/No confirmation if awaiting_offwork_confirmation ---
     if text == "yes" and state.get("awaiting_offwork_confirmation"):
+        # Confirm early checkout -> generate report
         msg = generate_final_report(user_id, username, state, now_dt)
         await update.message.reply_text(msg, parse_mode=ParseMode.HTML, reply_markup=get_reply_keyboard())
         log_to_csv(user_id, username, "Work completed. Final report generated.")
@@ -342,7 +369,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             state["awaiting_offwork_confirmation"] = False
         return
 
-    # TOILET
+    # --- TOILET ---
     if text == "toilet":
         if state["in_break"]:
             await send_response("🚫 You are already in a break...")
@@ -387,7 +414,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         log_to_csv(user_id, username, "Toilet")
         return
 
-    # EAT
+    # --- EAT ---
     if text == "eat":
         if state["in_break"]:
             await send_response("🚫 You are already in a break...")
@@ -437,7 +464,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         log_to_csv(user_id, username, "Eat")
         return
 
-    # REST
+    # --- REST ---
     if text == "rest":
         if state["in_break"]:
             await send_response("🚫 You are already in a break...")
@@ -485,7 +512,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
         log_to_csv(user_id, username, "Rest")
         return
 
-    # BACK TO SEAT
+    # --- BACK TO SEAT ---
     if text == "back to seat":
         last = state.get("last_activity")
         if last:
@@ -560,44 +587,28 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await send_response("ℹ You weren't on a break to return from.")
         return
 
-    # Unknown
+    # --- Unknown / fallback ---
     await update.message.reply_text("❓ Unknown command. Use the buttons below.", reply_markup=get_reply_keyboard())
 
-# ---------- App wiring (FastAPI + PTB) ----------
-app = FastAPI()
-application = Application.builder().token(TOKEN).build()
-
-# Handlers
-application.add_handler(CommandHandler("start", start))
-application.add_handler(CommandHandler("back", back_cmd))
-application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
-
-# Jobs
-application.job_queue.run_repeating(auto_offwork_check, interval=60, first=10, name="auto_offwork_checker")
-
-# FastAPI lifecycle: start PTB app (for job queue etc.)
-@app.on_event("startup")
-async def _startup():
+# --- Main ---
+def main():
+    if not TOKEN or TOKEN == "REPLACE_ME_IN_ENV":
+        raise RuntimeError("BOT_TOKEN env var not set. Please set it to your Telegram bot token.")
+    
     setup_csv_file()
-    await application.initialize()
-    await application.start()
-    logging.info("Telegram application started (webhook mode).")
 
-@app.on_event("shutdown")
-async def _shutdown():
-    await application.stop()
-    await application.shutdown()
-    logging.info("Telegram application stopped.")
+    app = ApplicationBuilder().token(TOKEN).build()
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("back", back_cmd))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
 
-# Webhook endpoint
-@app.post("/webhook")
-async def telegram_webhook(req: Request):
-    data = await req.json()
-    update = Update.de_json(data, application.bot)
-    await application.process_update(update)
-    return {"ok": True}
+    # Schedule repeating job to check for auto off-work every 60 seconds.
+    # This will trigger auto-offwork at 23:59 local time exactly once per date.
+    app.job_queue.run_repeating(auto_offwork_check, interval=60, first=10, name="auto_offwork_checker")
 
-# Healthcheck
-@app.get("/")
-async def root():
-    return {"status": "ok", "message": "Bot is running"}
+    print("🚀 Bot is now running and waiting for messages from all users!")
+    nest_asyncio.apply()
+    app.run_polling()
+
+if __name__ == "__main__":
+    main()

@@ -1,12 +1,13 @@
 services:
-  - type: web
+  - type: worker
     name: telegram-bot
     env: python
-    plan: free
     buildCommand: "pip install -r requirements.txt"
-    startCommand: "uvicorn main:app --host 0.0.0.0 --port $PORT"
+    startCommand: "python bot.py"
     envVars:
       - key: BOT_TOKEN
         sync: false
-      - key: CSV_FILE
-        value: work_log.csv
+    disk:
+      name: logs-disk
+      mountPath: /var/data
+      sizeGB: 1
