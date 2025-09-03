@@ -1,0 +1,7 @@
+[requires]
+python_version = "3.11"
+
+[packages]
+python-telegram-bot = {extras = ["job-queue"], version = "==20.3"}
+nest-asyncio = "*"
+pandas = "*"
