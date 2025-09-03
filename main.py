@@ -589,8 +589,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # --- Unknown / fallback ---
     await update.message.reply_text("❓ Unknown command. Use the buttons below.", reply_markup=get_reply_keyboard())
-
-# --- Main ---
+    # --- Main ---
 def main():
     if not TOKEN or TOKEN == "REPLACE_ME_IN_ENV":
         raise RuntimeError("BOT_TOKEN env var not set. Please set it to your Telegram bot token.")
@@ -614,6 +613,7 @@ def main():
     nest_asyncio.apply()
     app.run_polling()
 
-# ✅ fix typo: should be _name_ not name
+# ✅ fix typo: should be name not name
 if __name__ == "__main__":
     main()
+
