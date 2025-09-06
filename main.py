@@ -601,10 +601,14 @@ def main():
     # Schedule the auto_offwork_check job
     app.job_queue.run_repeating(auto_offwork_check, interval=60, first=10, name="auto_offwork_checker")
 
-    # Set webhook
+   # Set webhook
     URL = os.environ.get("RENDER_EXTERNAL_URL")
     WEBHOOK_PATH = TOKEN
     if URL:
+        # Ensure the URL starts with https://
+        if not URL.startswith('https://'):
+            URL = 'https://' + URL.lstrip('https://')
+            
         WEBHOOK_URL = f"{URL}/{WEBHOOK_PATH}"
         app.bot.set_webhook(url=WEBHOOK_URL)
         print(f"🚀 Webhook set at {WEBHOOK_URL}")
