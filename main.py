@@ -7,7 +7,6 @@ import json
 
 from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
 from dotenv import load_dotenv
-from http.server import HTTPServer, BaseHTTPRequestHandler
 from datetime import datetime, time, timedelta
 from telegram import Update, ReplyKeyboardMarkup
 from telegram.constants import ParseMode
@@ -15,28 +14,12 @@ from telegram.constants import ParseMode
 
 load_dotenv()
 
-# --- Dummy web server to satisfy Render free web service ---
-# This server runs on a separate thread to keep the service alive.
-PORT = int(os.environ.get("PORT", 8000))
-
-class Handler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        self.send_response(200)
-        self.end_headers()
-        self.wfile.write(b"Bot is running!")
-
-def run_server():
-    server = HTTPServer(("", PORT), Handler)
-    print(f"🌐 Dummy web server running on port {PORT}")
-    server.serve_forever()
-
-threading.Thread(target=run_server, daemon=True).start()
-
 # --- Configuration ---
 TOKEN = os.getenv("BOT_TOKEN")
 if not TOKEN or TOKEN == "REPLACE_ME_IN_ENV":
     raise RuntimeError("BOT_TOKEN env var not set. Please set it to your Telegram bot token.")
 
+PORT = int(os.environ.get("PORT", 8000))
 START_WORK_DEADLINE = time(11, 0)
 MAX_TOILET_BREAKS = 6
 TOILET_LIMIT_SECONDS = 10 * 60
@@ -568,31 +551,10 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("❓ Unknown command. Use the buttons below.", reply_markup=get_reply_keyboard())
     
 # --- Startup and Main ---
-
-async def on_startup(app: ApplicationBuilder):
-    # Schedule repeating job
-    app.job_queue.run_repeating(auto_offwork_check, interval=60, first=10, name="auto_offwork_checker")
-
-    # Set Telegram webhook
-    URL = os.environ.get("RENDER_EXTERNAL_URL")
-    WEBHOOK_PATH = TOKEN  # Fix: No leading slash
-    if URL:
-        WEBHOOK_URL = f"{URL}/{WEBHOOK_PATH}"
-        await app.bot.delete_webhook()
-        await app.bot.set_webhook(WEBHOOK_URL)
-        print(f"🚀 Webhook set at {WEBHOOK_URL}")
-    else:
-        print("⚠️ RENDER_EXTERNAL_URL not found. Running in local mode.")
-
-
-# Other code...
-
-# Other code...
-
 def main():
     setup_csv_file()
     app = ApplicationBuilder().token(TOKEN).build()
-    
+
     # Add handlers
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("back", back_cmd))
@@ -601,14 +563,12 @@ def main():
     # Schedule the auto_offwork_check job
     app.job_queue.run_repeating(auto_offwork_check, interval=60, first=10, name="auto_offwork_checker")
 
-   # Set webhook
+    # Set webhook
     URL = os.environ.get("RENDER_EXTERNAL_URL")
     WEBHOOK_PATH = TOKEN
     if URL:
-        # Ensure the URL starts with https://
         if not URL.startswith('https://'):
             URL = 'https://' + URL.lstrip('https://')
-            
         WEBHOOK_URL = f"{URL}/{WEBHOOK_PATH}"
         app.bot.set_webhook(url=WEBHOOK_URL)
         print(f"🚀 Webhook set at {WEBHOOK_URL}")
