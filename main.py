@@ -7,6 +7,9 @@ import pytz
 import csv
 import json
 
+from handlers import start, back_cmd, handle_text
+from jobs import auto_offwork_check
+
 from dotenv import load_dotenv
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from datetime import datetime, time, timedelta
@@ -581,16 +584,17 @@ async def on_startup(app):
     app.job_queue.run_repeating(auto_offwork_check, interval=60, first=10, name="auto_offwork_checker")
 
     # Set Telegram webhook
-    URL = os.environ.get("RENDER_EXTERNAL_URL")  # Render provides this automatically
-    WEBHOOK_URL = f"{URL}/{TOKEN}"
-
-    await app.bot.delete_webhook()  # Remove any old webhook
-    await app.bot.set_webhook(WEBHOOK_URL)  # Set new webhook
-    print(f"🚀 Webhook set at {WEBHOOK_URL}")
-
+    URL = os.environ.get("RENDER_EXTERNAL_URL")  # Provided automatically by Render
+    if URL:
+        WEBHOOK_URL = f"{URL}/{TOKEN}"
+        await app.bot.delete_webhook()  # Remove old webhook
+        await app.bot.set_webhook(WEBHOOK_URL)  # Set new webhook
+        print(f"🚀 Webhook set at {WEBHOOK_URL}")
+    else:
+        print("⚠️ RENDER_EXTERNAL_URL not found. Running in local mode.")
 
 def main():
-    # Build the bot application
+    # Build application
     app = ApplicationBuilder().token(TOKEN).build()
 
     # Add handlers
@@ -598,30 +602,20 @@ def main():
     app.add_handler(CommandHandler("back", back_cmd))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
 
-    # Set PORT and URL
+    # Run startup tasks
+    app.on_startup.append(on_startup)
+
+    # Get port from Render or default to 8000
     PORT = int(os.environ.get("PORT", 8000))
-    URL = os.environ.get("RENDER_EXTERNAL_URL")
-    WEBHOOK_URL = f"{URL}/{TOKEN}"
-
-    # ✅ Set webhook before starting the webhook server
-    asyncio.run(app.bot.delete_webhook())
-    asyncio.run(app.bot.set_webhook(WEBHOOK_URL))
-    print(f"🚀 Webhook set at {WEBHOOK_URL}")
-
-    # Schedule repeating job
-    app.job_queue.run_repeating(auto_offwork_check, interval=60, first=10, name="auto_offwork_checker")
 
     # Start webhook server
-    nest_asyncio.apply()
     app.run_webhook(
         listen="0.0.0.0",
         port=PORT,
-        url_path=TOKEN
+        url_path=TOKEN,
     )
-
 
 if __name__ == "__main__":
     main()
-
 
 
