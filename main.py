@@ -577,7 +577,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
 def main():
     setup_csv_file()
 
-    app = ApplicationBuilder().token(TOKEN).job_queue(True).build()
+    app = ApplicationBuilder().token(TOKEN).build()
     job_queue = app.job_queue
 
     app.add_handler(CommandHandler("start", start))
