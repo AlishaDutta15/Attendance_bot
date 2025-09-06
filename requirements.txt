@@ -68,7 +68,7 @@ pyparsing==3.2.1
 pyserial==3.5
 python-dateutil==2.9.0.post0
 python-dotenv==1.1.1
-python-telegram-bot==22.3.0\[webhooks] # This is the corrected line
+python-telegram-bot[webhooks]==22.3.0 # This is the corrected line
 pytz==2025.1
 pywin32==308
 pywin32-ctypes==0.2.3
@@ -100,3 +100,4 @@ wcwidth==0.2.13
 websocket-client==1.8.0
 
 zipp==3.21.0
+
