@@ -603,7 +603,7 @@ def main():
 
 
     # Get port from Render or default to 8000
-    PORT = int(os.environ.get("PORT", 8000))
+    
 
     # Start webhook server
     app.run_webhook(
