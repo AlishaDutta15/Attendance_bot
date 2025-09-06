@@ -6,6 +6,7 @@ import pytz
 import csv
 
 from dotenv import load_dotenv
+from http.server import HTTPServer, BaseHTTPRequestHandler
 from datetime import datetime, time, timedelta
 from telegram import Update, ReplyKeyboardMarkup
 from telegram.constants import ParseMode
@@ -17,6 +18,23 @@ from telegram.ext import (
     filters,
 )
 load_dotenv()
+
+# --- Dummy web server to satisfy Render free web service ---
+PORT = int(os.environ.get("PORT", 8000))  # Render sets this automatically
+
+class Handler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"Bot is running!")
+
+def run_server():
+    server = HTTPServer(("", PORT), Handler)
+    print(f"🌐 Dummy web server running on port {PORT}")
+    server.serve_forever()
+
+# Start the server in a separate thread so it doesn't block the bot
+threading.Thread(target=run_server, daemon=True).start()
 
 # --- Configuration ---
 TOKEN = os.getenv("BOT_TOKEN")
