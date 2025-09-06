@@ -594,16 +594,25 @@ def main():
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
 
     PORT = int(os.environ.get("PORT", 8000))
+    URL = os.environ.get("RENDER_EXTERNAL_URL")  # Render URL
+    WEBHOOK_URL = f"{URL}/{TOKEN}"
 
-    # run webhook (job_queue ready via post_init)
+    # ✅ set webhook BEFORE starting the webhook server
+    import asyncio
+    asyncio.run(app.bot.delete_webhook())
+    asyncio.run(app.bot.set_webhook(WEBHOOK_URL))
+    print(f"🚀 Webhook set at {WEBHOOK_URL}")
+
+    # Schedule repeating job after app is running
+    app.job_queue.run_repeating(auto_offwork_check, interval=60, first=10, name="auto_offwork_checker")
+
+    # run webhook
     nest_asyncio.apply()
     app.run_webhook(
         listen="0.0.0.0",
         port=PORT,
-        url_path=TOKEN,        # same as webhook path
-        post_init=on_startup
+        url_path=TOKEN
     )
 
 if __name__ == "__main__":
     main()
-
