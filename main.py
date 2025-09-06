@@ -7,7 +7,7 @@ import pytz
 import csv
 import json
 
-from handlers import start, back_cmd, handle_text
+from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters
 from jobs import auto_offwork_check
 
 from dotenv import load_dotenv
