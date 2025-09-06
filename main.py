@@ -594,7 +594,13 @@ def main():
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
 
     # Run startup tasks
-    app.on_startup.append(on_startup)
+    app.run_webhook(
+    listen="0.0.0.0",
+    port=PORT,
+    url_path=TOKEN,
+    post_init=on_startup,  # <-- call your async startup function here
+)
+
 
     # Get port from Render or default to 8000
     PORT = int(os.environ.get("PORT", 8000))
