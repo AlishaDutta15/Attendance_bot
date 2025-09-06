@@ -1,27 +1,18 @@
 import logging
 import os
 import threading
-import nest_asyncio
 import asyncio
 import pytz
 import csv
 import json
 
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters
-from jobs import auto_offwork_check
-
+from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
 from dotenv import load_dotenv
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from datetime import datetime, time, timedelta
 from telegram import Update, ReplyKeyboardMarkup
 from telegram.constants import ParseMode
-from telegram.ext import (
-    ApplicationBuilder,
-    CommandHandler,
-    MessageHandler,
-    ContextTypes,
-    filters,
-)
+
 
 load_dotenv()
 
