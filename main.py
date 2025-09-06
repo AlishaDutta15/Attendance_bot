@@ -574,38 +574,54 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # --- Unknown / fallback ---
     await update.message.reply_text("❓ Unknown command. Use the buttons below.", reply_markup=get_reply_keyboard())
     
-# --- Main ---
+# --- Startup and Main ---
+
 async def on_startup(app):
-    # Schedule repeating job
+    # Schedule repeating job after app is running
     app.job_queue.run_repeating(auto_offwork_check, interval=60, first=10, name="auto_offwork_checker")
 
     # Set Telegram webhook
-    URL = os.environ.get("RENDER_EXTERNAL_URL")  # Render automatically provides this
+    URL = os.environ.get("RENDER_EXTERNAL_URL")  # Render provides this automatically
     WEBHOOK_URL = f"{URL}/{TOKEN}"
 
-    await app.bot.delete_webhook()  # Remove old webhook
+    await app.bot.delete_webhook()  # Remove any old webhook
     await app.bot.set_webhook(WEBHOOK_URL)  # Set new webhook
     print(f"🚀 Webhook set at {WEBHOOK_URL}")
 
 
 def main():
+    # Build the bot application
     app = ApplicationBuilder().token(TOKEN).build()
+
+    # Add handlers
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("back", back_cmd))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
 
+    # Set PORT and URL
     PORT = int(os.environ.get("PORT", 8000))
+    URL = os.environ.get("RENDER_EXTERNAL_URL")
+    WEBHOOK_URL = f"{URL}/{TOKEN}"
 
-    # Run webhook server with startup callback
-    nest_asyncio.apply()  # Needed for Render
+    # ✅ Set webhook before starting the webhook server
+    asyncio.run(app.bot.delete_webhook())
+    asyncio.run(app.bot.set_webhook(WEBHOOK_URL))
+    print(f"🚀 Webhook set at {WEBHOOK_URL}")
+
+    # Schedule repeating job
+    app.job_queue.run_repeating(auto_offwork_check, interval=60, first=10, name="auto_offwork_checker")
+
+    # Start webhook server
+    nest_asyncio.apply()
     app.run_webhook(
         listen="0.0.0.0",
         port=PORT,
-        url_path=TOKEN,
-        post_init=on_startup  # <-- sets webhook and schedules jobs
+        url_path=TOKEN
     )
+
 
 if __name__ == "__main__":
     main()
+
 
 
