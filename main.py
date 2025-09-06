@@ -574,36 +574,36 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("❓ Unknown command. Use the buttons below.", reply_markup=get_reply_keyboard())
     
 # --- Main ---
+async def on_startup(app):
+    # Schedule repeating job after app is running
+    app.job_queue.run_repeating(auto_offwork_check, interval=60, first=10, name="auto_offwork_checker")
+
+    # Set Telegram webhook
+    URL = os.environ.get("RENDER_EXTERNAL_URL")  # Render provides this automatically
+    WEBHOOK_URL = f"{URL}/{TOKEN}"
+
+    await app.bot.delete_webhook()  # Remove any old webhook
+    await app.bot.set_webhook(WEBHOOK_URL)  # Set new webhook
+
+    print(f"🚀 Webhook set at {WEBHOOK_URL}")
+
 def main():
-    setup_csv_file()
-
     app = ApplicationBuilder().token(TOKEN).build()
-    job_queue = app.job_queue
-
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("back", back_cmd))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
 
-    job_queue.run_repeating(auto_offwork_check, interval=60, first=10, name="auto_offwork_checker")
-
     PORT = int(os.environ.get("PORT", 8000))
-    URL = os.environ.get("RENDER_EXTERNAL_URL")
-    WEBHOOK_PATH = f"/{TOKEN}"
-    WEBHOOK_URL = f"{URL}{WEBHOOK_PATH}"
 
-    print("🚀 Removing old webhook just in case...")
-    app.bot.delete_webhook()
-    print(f"🚀 Setting new webhook to {WEBHOOK_URL}...")
-    app.bot.set_webhook(WEBHOOK_URL)
-    
-    print(f"🚀 Bot is running with webhook at {WEBHOOK_URL} on port {PORT}!")
-    
+    # run webhook (job_queue ready via post_init)
     nest_asyncio.apply()
     app.run_webhook(
         listen="0.0.0.0",
         port=PORT,
-        url_path=TOKEN,
+        url_path=TOKEN,        # same as webhook path
+        post_init=on_startup
     )
 
 if __name__ == "__main__":
     main()
+
