@@ -1,4 +1,4 @@
-python-telegram-bot[job-queue]==20.3
+python-telegram-bot==20.6
 python-dotenv
-pytz
 nest_asyncio
+pytz
