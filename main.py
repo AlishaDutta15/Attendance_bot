@@ -555,16 +555,13 @@ def main():
     setup_csv_file()
     app = ApplicationBuilder().token(TOKEN).build()
 
-    # Add handlers
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("back", back_cmd))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
 
     async def run():
-        # Schedule the auto_offwork_check job
-        app.job_queue.run_repeating(auto_offwork_check, interval=60, first=10, name="auto_offwork_checker")
+        app.job_queue.run_repeating(auto_offwork_check, interval=60, first=10)
 
-        # Set webhook
         URL = os.environ.get("RENDER_EXTERNAL_URL")
         WEBHOOK_PATH = TOKEN
         if URL:
@@ -572,16 +569,17 @@ def main():
                 URL = "https://" + URL.lstrip("https://")
             WEBHOOK_URL = f"{URL}/{WEBHOOK_PATH}"
             await app.bot.delete_webhook()
-            await app.bot.set_webhook(url=WEBHOOK_URL)
+            await app.bot.set_webhook(WEBHOOK_URL)
             print(f"🚀 Webhook set at {WEBHOOK_URL}")
         else:
             print("⚠️ RENDER_EXTERNAL_URL not found. Running in local mode.")
 
-        # Start webhook server
         await app.run_webhook(
             listen="0.0.0.0",
-            port=PORT,
+            port=int(os.environ.get("PORT", 10000)),
             url_path=TOKEN,
         )
 
+    import asyncio
     asyncio.run(run())
+
