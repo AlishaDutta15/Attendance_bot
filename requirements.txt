@@ -1,5 +1,6 @@
-python-dotenv
-pytz
-python-telegram-bot[webhooks,job-queue]
+python-telegram-bot[webhooks,job-queue]==20.3
+python-dotenv==1.0.1
+pytz==2024.1
+aiohttp==3.9.5
 
 
