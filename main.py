@@ -375,11 +375,10 @@ async def auto_offwork_check(context: ContextTypes.DEFAULT_TYPE):
 setup_csv_file()
 
 
-# --- Main ---
-def main():
-    # Build the application
+async def main():
     app = ApplicationBuilder().token(TOKEN).build()
-
+    await app.initialize()
+    
     # Add handlers
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("back", back_cmd))
@@ -387,7 +386,6 @@ def main():
 
     # Add repeating job for auto-offwork
     app.job_queue.run_repeating(auto_offwork_check, interval=60, first=10)
-
     # Start bot
     URL = os.environ.get("RENDER_EXTERNAL_URL")
     if URL:
@@ -406,5 +404,8 @@ def main():
         print("⚠ RENDER_EXTERNAL_URL not set, running in polling mode...")
         app.run_polling()
 
+
+
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
+
