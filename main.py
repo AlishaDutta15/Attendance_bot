@@ -9,7 +9,9 @@ from threading import Lock
 from dotenv import load_dotenv
 from telegram import Update, ReplyKeyboardMarkup
 from telegram.constants import ParseMode
-from telegram.ext import Application, CommandHandler, MessageHandler, ContextTypes, filters
+from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, ContextTypes, filters
+
+
 
 # --- Load env ---
 load_dotenv()
@@ -370,35 +372,31 @@ async def auto_offwork_check(context: ContextTypes.DEFAULT_TYPE):
             log_to_csv(uid, state.get("username", "Unknown"), "Auto Off Work")
             user_states.pop(uid, None)
 
+setup_csv_file()
+
+
 # --- Main ---
 def main():
-    # ✅ Build the application (PTB v20+)
+    # Build the application
     app = ApplicationBuilder().token(TOKEN).build()
 
-    # --- Add Handlers ---
+    # Add handlers
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("back", back_cmd))  # if you have back_cmd
+    app.add_handler(CommandHandler("back", back_cmd))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
 
-    # --- Add repeating job for auto-offwork ---
+    # Add repeating job for auto-offwork
     app.job_queue.run_repeating(auto_offwork_check, interval=60, first=10)
 
-    # --- Start the bot ---
-    # For local/dev: use polling
-    # app.run_polling()
-
-    # For deployment with Render (webhook)
+    # Start bot
     URL = os.environ.get("RENDER_EXTERNAL_URL")
     if URL:
         if not URL.startswith("https://"):
             URL = "https://" + URL.lstrip("https://")
         WEBHOOK_URL = f"{URL}/{TOKEN}"
-        # Delete old webhook if any
         asyncio.run(app.bot.delete_webhook())
-        # Set webhook
         asyncio.run(app.bot.set_webhook(WEBHOOK_URL))
         print(f"🚀 Webhook set at {WEBHOOK_URL}")
-        # Start webhook server
         app.run_webhook(
             listen="0.0.0.0",
             port=PORT,
@@ -407,3 +405,6 @@ def main():
     else:
         print("⚠ RENDER_EXTERNAL_URL not set, running in polling mode...")
         app.run_polling()
+
+if __name__ == "__main__":
+    main()
