@@ -2,5 +2,3 @@ python-telegram-bot[webhooks,job-queue]==20.7
 python-dotenv
 pytz
 
-
-
