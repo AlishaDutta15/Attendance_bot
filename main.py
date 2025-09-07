@@ -372,18 +372,38 @@ async def auto_offwork_check(context: ContextTypes.DEFAULT_TYPE):
 
 # --- Main ---
 def main():
-    setup_csv_file()
-    app = Application.builder().token(TOKEN).build()
+    # ✅ Build the application (PTB v20+)
+    app = ApplicationBuilder().token(TOKEN).build()
+
+    # --- Add Handlers ---
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("back", back_cmd))
+    app.add_handler(CommandHandler("back", back_cmd))  # if you have back_cmd
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
+
+    # --- Add repeating job for auto-offwork ---
     app.job_queue.run_repeating(auto_offwork_check, interval=60, first=10)
 
+    # --- Start the bot ---
+    # For local/dev: use polling
+    # app.run_polling()
+
+    # For deployment with Render (webhook)
     URL = os.environ.get("RENDER_EXTERNAL_URL")
     if URL:
-        asyncio.run(app.run_webhook(listen="0.0.0.0", port=PORT, url_path=TOKEN, webhook_url=f"{URL}/{TOKEN}"))
+        if not URL.startswith("https://"):
+            URL = "https://" + URL.lstrip("https://")
+        WEBHOOK_URL = f"{URL}/{TOKEN}"
+        # Delete old webhook if any
+        asyncio.run(app.bot.delete_webhook())
+        # Set webhook
+        asyncio.run(app.bot.set_webhook(WEBHOOK_URL))
+        print(f"🚀 Webhook set at {WEBHOOK_URL}")
+        # Start webhook server
+        app.run_webhook(
+            listen="0.0.0.0",
+            port=PORT,
+            url_path=TOKEN
+        )
     else:
-        asyncio.run(app.run_polling())
-
-if __name__ == "__main__":
-    main()
+        print("⚠ RENDER_EXTERNAL_URL not set, running in polling mode...")
+        app.run_polling()
