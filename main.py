@@ -376,7 +376,8 @@ setup_csv_file()
 
 
 async def main():
-    app = ApplicationBuilder().token(TOKEN).build()
+ app = ApplicationBuilder().token(TOKEN).job_queue_enabled(True).build()
+
     await app.initialize()
     
     # Add handlers
